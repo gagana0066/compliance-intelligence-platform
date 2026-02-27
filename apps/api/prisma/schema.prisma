@@ -7,6 +7,93 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  ANALYST
+  REVIEWER
+}
+
+enum RuleField {
+  DOCUMENTS_COUNT
+  DEADLINE_IS_PAST
+  CASE_TYPE
+}
+
+enum RuleOperator {
+  LT
+  LTE
+  GT
+  GTE
+  EQ
+  NEQ
+  CONTAINS
+}
+
+model Firm {
+  id        String           @id @default(uuid())
+  name      String
+  slug      String           @unique
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  users     User[]
+  cases     Case[]
+  rules     ComplianceRule[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  fullName  String
+  role      UserRole @default(ANALYST)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm   Firm   @relation(fields: [firmId], references: [id])
+  firmId String
+
+  ownedCases Case[] @relation("OwnedCases")
+}
+
+model ComplianceRule {
+  id          String        @id @default(uuid())
+  code        String
+  name        String
+  description String
+  severity    Severity
+  weight      Int
+  enabled     Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  firm   Firm   @relation(fields: [firmId], references: [id])
+  firmId String
+
+  conditions RuleCondition[]
+  findings   AuditFinding[]
+
+  @@unique([firmId, code])
+}
+
+model RuleCondition {
+  id         String       @id @default(uuid())
+  field      RuleField
+  operator   RuleOperator
+  value      String
+  createdAt  DateTime     @default(now())
+  rule       ComplianceRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId     String
+}
+
 model Case {
   id              String   @id @default(uuid())
   clientName      String
@@ -15,19 +102,28 @@ model Case {
   deadline        DateTime
   documentsCount  Int
   createdAt       DateTime @default(now())
-  riskScore   Int     @default(0)
-  riskLevel   String  @default("LOW")
-  
-  findings        AuditFinding[]
+  riskScore       Int      @default(0)
+  riskLevel       Severity @default(LOW)
+  aiSummary       String?
+
+  firm        Firm    @relation(fields: [firmId], references: [id])
+  firmId      String
+  ownerUser   User?   @relation("OwnedCases", fields: [ownerUserId], references: [id])
+  ownerUserId String?
+
+  findings AuditFinding[]
 }
 
 model AuditFinding {
   id        String   @id @default(uuid())
   ruleId    String
-  severity  String
+  severity  Severity
   message   String
   createdAt DateTime @default(now())
 
   case      Case     @relation(fields: [caseId], references: [id])
   caseId    String
+
+  ruleRef   ComplianceRule? @relation(fields: [ruleRefId], references: [id])
+  ruleRefId String?
 }

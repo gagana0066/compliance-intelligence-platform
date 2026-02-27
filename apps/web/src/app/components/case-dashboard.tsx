@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 
 type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+type RuleField = "DOCUMENTS_COUNT" | "DEADLINE_IS_PAST" | "CASE_TYPE";
+type RuleOperator = "LT" | "LTE" | "GT" | "GTE" | "EQ" | "NEQ" | "CONTAINS";
 
 type Finding = {
   id: string;
@@ -44,11 +46,19 @@ type TrendDto = {
 
 type RuleDto = {
   id: string;
+  firmId: string;
   code: string;
   name: string;
+  description: string;
   enabled: boolean;
   weight: number;
   severity: Severity;
+  conditions: {
+    id: string;
+    field: RuleField;
+    operator: RuleOperator;
+    value: string;
+  }[];
 };
 
 const riskOrder: Record<Severity, number> = {
@@ -86,7 +96,35 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
     "RISK_DESC"
   );
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
+  const [localRules, setLocalRules] = useState<RuleDto[]>(rules);
+  const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [busyRuleId, setBusyRuleId] = useState("");
+  const [editingRuleId, setEditingRuleId] = useState("");
+  const [newRule, setNewRule] = useState({
+    code: "",
+    name: "",
+    description: "",
+    severity: "MEDIUM" as Severity,
+    weight: 25,
+    field: "DOCUMENTS_COUNT" as RuleField,
+    operator: "LT" as RuleOperator,
+    value: "3",
+  });
+  const [editRule, setEditRule] = useState({
+    name: "",
+    description: "",
+    severity: "MEDIUM" as Severity,
+    weight: 25,
+    field: "DOCUMENTS_COUNT" as RuleField,
+    operator: "LT" as RuleOperator,
+    value: "3",
+  });
   const nowTime = new Date(nowIso).getTime();
+  const firmId =
+    cases.find((c) => c.firm?.id)?.firm?.id ??
+    rules[0]?.firmId ??
+    "default-firm";
 
   const filteredCases = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -156,7 +194,7 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
     };
   }, [cases, nowTime]);
 
-  const activeRules = rules.filter((rule) => rule.enabled);
+  const activeRules = localRules.filter((rule) => rule.enabled);
   const highestWeightRule = [...activeRules].sort(
     (a, b) => b.weight - a.weight
   )[0];
@@ -164,21 +202,168 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
   const tenantName =
     cases.find((c) => c.firm?.name)?.firm?.name ?? "Default Law Firm";
 
+  async function toggleRule(rule: RuleDto) {
+    try {
+      setBusyRuleId(rule.id);
+      setActionError("");
+      setActionMessage("");
+      const response = await fetch(`http://localhost:4000/rules/${rule.id}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !rule.enabled }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error ?? "Failed to toggle rule");
+      }
+
+      const updated = (await response.json()) as RuleDto;
+      setLocalRules((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+      setActionMessage(`Rule ${updated.code} is now ${updated.enabled ? "enabled" : "disabled"}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to toggle rule");
+    } finally {
+      setBusyRuleId("");
+    }
+  }
+
+  function beginEdit(rule: RuleDto) {
+    setEditingRuleId(rule.id);
+    setEditRule({
+      name: rule.name,
+      description: rule.description,
+      severity: rule.severity,
+      weight: rule.weight,
+      field: rule.conditions[0]?.field ?? "DOCUMENTS_COUNT",
+      operator: rule.conditions[0]?.operator ?? "LT",
+      value: rule.conditions[0]?.value ?? "3",
+    });
+    setActionError("");
+    setActionMessage("");
+  }
+
+  async function saveEdit(ruleId: string) {
+    try {
+      setBusyRuleId(ruleId);
+      setActionError("");
+      setActionMessage("");
+
+      const response = await fetch(`http://localhost:4000/rules/${ruleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editRule.name.trim(),
+          description: editRule.description.trim(),
+          severity: editRule.severity,
+          weight: Number(editRule.weight),
+          conditions: [
+            {
+              field: editRule.field,
+              operator: editRule.operator,
+              value: String(editRule.value),
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error ?? "Failed to update rule");
+      }
+
+      const updated = (await response.json()) as RuleDto;
+      setLocalRules((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+      setEditingRuleId("");
+      setActionMessage(`Updated ${updated.code}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to update rule");
+    } finally {
+      setBusyRuleId("");
+    }
+  }
+
+  async function createRule() {
+    try {
+      setBusyRuleId("create");
+      setActionError("");
+      setActionMessage("");
+
+      if (!newRule.code.trim() || !newRule.name.trim() || !newRule.description.trim()) {
+        throw new Error("code, name and description are required");
+      }
+
+      const response = await fetch("http://localhost:4000/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firmId,
+          code: newRule.code.trim().toUpperCase(),
+          name: newRule.name.trim(),
+          description: newRule.description.trim(),
+          severity: newRule.severity,
+          weight: Number(newRule.weight),
+          enabled: true,
+          conditions: [
+            {
+              field: newRule.field,
+              operator: newRule.operator,
+              value: String(newRule.value),
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error ?? "Failed to create rule");
+      }
+
+      const created = (await response.json()) as RuleDto;
+      setLocalRules((current) => [created, ...current]);
+      setNewRule({
+        code: "",
+        name: "",
+        description: "",
+        severity: "MEDIUM",
+        weight: 25,
+        field: "DOCUMENTS_COUNT",
+        operator: "LT",
+        value: "3",
+      });
+      setActionMessage(`Created rule ${created.code}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to create rule");
+    } finally {
+      setBusyRuleId("");
+    }
+  }
+
   return (
     <main className="dashboard-bg">
       <section className="mx-auto max-w-7xl px-4 pb-12 pt-10 sm:px-6 lg:px-8">
         <header className="mb-8 card-enter">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--moss-500)]">
-            Sentinel
+            Compliance Intelligence Platform
           </p>
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
             <div>
               <h1 className="text-3xl font-extrabold text-[var(--forest-700)] sm:text-4xl">
-                Compliance Intelligence
+                Case Dashboard
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-[var(--muted)] sm:text-base">
                 Monitor case risk, prioritize deadlines, and inspect findings
-                from one operational view.
+                from a single operational view.
               </p>
               <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--moss-500)]">
                 Tenant: {tenantName}
@@ -281,6 +466,284 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
               />
               Show overdue only
             </label>
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm card-enter">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-[var(--forest-700)]">
+                Rules Console
+              </h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Database-driven policy rules currently active for this tenant.
+              </p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              {localRules.length} total
+            </span>
+          </div>
+          <div className="mb-4 rounded-xl border border-[var(--border)] bg-white p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Create Rule
+            </p>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <input
+                value={newRule.code}
+                onChange={(e) => setNewRule((r) => ({ ...r, code: e.target.value }))}
+                placeholder="Code (e.g. CASE_TYPE_MA)"
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              />
+              <input
+                value={newRule.name}
+                onChange={(e) => setNewRule((r) => ({ ...r, name: e.target.value }))}
+                placeholder="Rule name"
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              />
+              <input
+                value={newRule.description}
+                onChange={(e) =>
+                  setNewRule((r) => ({ ...r, description: e.target.value }))
+                }
+                placeholder="Rule message / remediation text"
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm md:col-span-2"
+              />
+              <select
+                value={newRule.severity}
+                onChange={(e) =>
+                  setNewRule((r) => ({ ...r, severity: e.target.value as Severity }))
+                }
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              >
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+                <option value="CRITICAL">CRITICAL</option>
+              </select>
+              <input
+                value={newRule.weight}
+                onChange={(e) =>
+                  setNewRule((r) => ({ ...r, weight: Number(e.target.value) || 0 }))
+                }
+                placeholder="Weight"
+                type="number"
+                min={0}
+                max={100}
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              />
+              <select
+                value={newRule.field}
+                onChange={(e) =>
+                  setNewRule((r) => ({ ...r, field: e.target.value as RuleField }))
+                }
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              >
+                <option value="DOCUMENTS_COUNT">DOCUMENTS_COUNT</option>
+                <option value="DEADLINE_IS_PAST">DEADLINE_IS_PAST</option>
+                <option value="CASE_TYPE">CASE_TYPE</option>
+              </select>
+              <select
+                value={newRule.operator}
+                onChange={(e) =>
+                  setNewRule((r) => ({ ...r, operator: e.target.value as RuleOperator }))
+                }
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              >
+                <option value="LT">LT</option>
+                <option value="LTE">LTE</option>
+                <option value="GT">GT</option>
+                <option value="GTE">GTE</option>
+                <option value="EQ">EQ</option>
+                <option value="NEQ">NEQ</option>
+                <option value="CONTAINS">CONTAINS</option>
+              </select>
+              <input
+                value={newRule.value}
+                onChange={(e) => setNewRule((r) => ({ ...r, value: e.target.value }))}
+                placeholder="Condition value"
+                className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={createRule}
+                disabled={busyRuleId === "create"}
+                className="rounded-lg bg-[var(--forest-700)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {busyRuleId === "create" ? "Creating..." : "Create Rule"}
+              </button>
+            </div>
+          </div>
+          {actionError && (
+            <p className="mb-2 rounded-lg bg-[#f2d4d4] px-3 py-2 text-sm text-[#8a2020]">
+              {actionError}
+            </p>
+          )}
+          {actionMessage && (
+            <p className="mb-2 rounded-lg bg-[#d8eadf] px-3 py-2 text-sm text-[#1f6a3e]">
+              {actionMessage}
+            </p>
+          )}
+          <div className="space-y-2">
+            {localRules.length === 0 && (
+              <p className="rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
+                No rules found for this firm yet.
+              </p>
+            )}
+            {localRules.map((rule) => (
+              <div
+                key={rule.id}
+                className="rounded-xl border border-[var(--border)] bg-white px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-[var(--forest-700)]">
+                      {rule.code} | {rule.name}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">{rule.description}</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      Severity: {rule.severity} | Weight: {rule.weight} | Condition:{" "}
+                      {rule.conditions[0]?.field ?? "-"} {rule.conditions[0]?.operator ?? "-"}{" "}
+                      {rule.conditions[0]?.value ?? "-"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => beginEdit(rule)}
+                      className="rounded-md border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--muted)]"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleRule(rule)}
+                      disabled={busyRuleId === rule.id}
+                      className="rounded-md border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--muted)] disabled:opacity-60"
+                    >
+                      {busyRuleId === rule.id
+                        ? "Saving..."
+                        : rule.enabled
+                        ? "Disable"
+                        : "Enable"}
+                    </button>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                        rule.enabled
+                          ? "bg-[#d8eadf] text-[#1f6a3e]"
+                          : "bg-[#f2d4d4] text-[#8a2020]"
+                      }`}
+                    >
+                      {rule.enabled ? "enabled" : "disabled"}
+                    </span>
+                  </div>
+                </div>
+                {editingRuleId === rule.id && (
+                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <input
+                      value={editRule.name}
+                      onChange={(e) =>
+                        setEditRule((current) => ({ ...current, name: e.target.value }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    />
+                    <input
+                      value={editRule.description}
+                      onChange={(e) =>
+                        setEditRule((current) => ({
+                          ...current,
+                          description: e.target.value,
+                        }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    />
+                    <select
+                      value={editRule.severity}
+                      onChange={(e) =>
+                        setEditRule((current) => ({
+                          ...current,
+                          severity: e.target.value as Severity,
+                        }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    >
+                      <option value="LOW">LOW</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                    <input
+                      value={editRule.weight}
+                      onChange={(e) =>
+                        setEditRule((current) => ({
+                          ...current,
+                          weight: Number(e.target.value) || 0,
+                        }))
+                      }
+                      type="number"
+                      min={0}
+                      max={100}
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    />
+                    <select
+                      value={editRule.field}
+                      onChange={(e) =>
+                        setEditRule((current) => ({
+                          ...current,
+                          field: e.target.value as RuleField,
+                        }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    >
+                      <option value="DOCUMENTS_COUNT">DOCUMENTS_COUNT</option>
+                      <option value="DEADLINE_IS_PAST">DEADLINE_IS_PAST</option>
+                      <option value="CASE_TYPE">CASE_TYPE</option>
+                    </select>
+                    <select
+                      value={editRule.operator}
+                      onChange={(e) =>
+                        setEditRule((current) => ({
+                          ...current,
+                          operator: e.target.value as RuleOperator,
+                        }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    >
+                      <option value="LT">LT</option>
+                      <option value="LTE">LTE</option>
+                      <option value="GT">GT</option>
+                      <option value="GTE">GTE</option>
+                      <option value="EQ">EQ</option>
+                      <option value="NEQ">NEQ</option>
+                      <option value="CONTAINS">CONTAINS</option>
+                    </select>
+                    <input
+                      value={editRule.value}
+                      onChange={(e) =>
+                        setEditRule((current) => ({ ...current, value: e.target.value }))
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(rule.id)}
+                        disabled={busyRuleId === rule.id}
+                        className="rounded-lg bg-[var(--forest-700)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                      >
+                        {busyRuleId === rule.id ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingRuleId("")}
+                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--muted)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </section>
 

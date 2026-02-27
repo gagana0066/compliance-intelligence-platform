@@ -40,11 +40,19 @@ type TrendDto = {
 
 type RuleDto = {
   id: string;
+  firmId: string;
   code: string;
   name: string;
+  description: string;
   enabled: boolean;
   weight: number;
   severity: Severity;
+  conditions: {
+    id: string;
+    field: "DOCUMENTS_COUNT" | "DEADLINE_IS_PAST" | "CASE_TYPE";
+    operator: "LT" | "LTE" | "GT" | "GTE" | "EQ" | "NEQ" | "CONTAINS";
+    value: string;
+  }[];
 };
 
 async function getCases(): Promise<CaseDto[]> {
@@ -110,7 +118,7 @@ export default async function Home() {
     <main className="dashboard-bg flex min-h-screen items-center justify-center px-4">
       <div className="max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center shadow-sm">
         <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--moss-500)]">
-          Sentinel
+          Compliance Intelligence Platform
         </p>
         <h1 className="text-2xl font-bold text-[var(--forest-700)]">
           Dashboard Unavailable

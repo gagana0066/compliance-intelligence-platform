@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sentinel Compliance Intelligence Platform",
+  title: "Compliance Intelligence Platform",
   description:
     "Risk-driven compliance monitoring dashboard for cases and findings.",
 };
