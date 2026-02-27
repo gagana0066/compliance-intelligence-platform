@@ -15,7 +15,9 @@ model Case {
   deadline        DateTime
   documentsCount  Int
   createdAt       DateTime @default(now())
-
+  riskScore   Int     @default(0)
+  riskLevel   String  @default("LOW")
+  
   findings        AuditFinding[]
 }
 

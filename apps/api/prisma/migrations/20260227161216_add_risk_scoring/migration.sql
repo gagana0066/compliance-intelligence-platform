@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Case" ADD COLUMN     "riskLevel" TEXT NOT NULL DEFAULT 'LOW',
+ADD COLUMN     "riskScore" INTEGER NOT NULL DEFAULT 0;
