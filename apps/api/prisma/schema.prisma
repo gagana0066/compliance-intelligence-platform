@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Case {
+  id              String   @id @default(uuid())
+  clientName      String
+  caseType        String
+  owner           String
+  deadline        DateTime
+  documentsCount  Int
+  createdAt       DateTime @default(now())
+
+  findings        AuditFinding[]
+}
+
+model AuditFinding {
+  id        String   @id @default(uuid())
+  ruleId    String
+  severity  String
+  message   String
+  createdAt DateTime @default(now())
+
+  case      Case     @relation(fields: [caseId], references: [id])
+  caseId    String
+}
