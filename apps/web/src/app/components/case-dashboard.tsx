@@ -207,7 +207,7 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
       setBusyRuleId(rule.id);
       setActionError("");
       setActionMessage("");
-      const response = await fetch(`http://localhost:4000/rules/${rule.id}/toggle`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rules/${rule.id}/toggle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !rule.enabled }),
@@ -253,7 +253,7 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
       setActionError("");
       setActionMessage("");
 
-      const response = await fetch(`http://localhost:4000/rules/${ruleId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rules/${ruleId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -301,7 +301,7 @@ export function CaseDashboard({ cases, trends, rules, nowIso }: Props) {
         throw new Error("code, name and description are required");
       }
 
-      const response = await fetch("http://localhost:4000/rules", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

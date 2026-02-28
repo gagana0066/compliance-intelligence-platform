@@ -56,7 +56,7 @@ type RuleDto = {
 };
 
 async function getCases(): Promise<CaseDto[]> {
-  const response = await fetch("http://localhost:4000/cases", {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cases`, {
     cache: "no-store",
   });
 
@@ -68,8 +68,7 @@ async function getCases(): Promise<CaseDto[]> {
 }
 
 async function getRiskTrends(firmId: string): Promise<TrendDto | null> {
-  const response = await fetch(
-    `http://localhost:4000/analytics/risk-trends?firmId=${firmId}&days=120`,
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/analytics/risk-trends?firmId=${firmId}&days=120`,
     {
       cache: "no-store",
     }
@@ -80,7 +79,7 @@ async function getRiskTrends(firmId: string): Promise<TrendDto | null> {
 }
 
 async function getRules(firmId: string): Promise<RuleDto[]> {
-  const response = await fetch(`http://localhost:4000/rules?firmId=${firmId}`, {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rules?firmId=${firmId}`, {
     cache: "no-store",
   });
   if (!response.ok) return [];
@@ -126,7 +125,7 @@ export default async function Home() {
         <p className="mt-3 text-sm text-[var(--muted)]">
           Could not load cases from the API. Confirm backend is running at
           <span className="mx-1 font-mono text-[var(--forest-700)]">
-            http://localhost:4000
+            {process.env.NEXT_PUBLIC_API_URL}
           </span>
           and refresh.
         </p>
